@@ -28,6 +28,22 @@ func TestDecodeResource(t *testing.T) {
 		Resource *Resource
 	}{
 		{
+			Option: "unknown=bad",
+			Ok:     false,
+		},
+		{
+			Option: "uri=/|unknown=bad",
+			Ok:     false,
+		},
+		{
+			Option: "uri",
+			Ok:     false,
+		},
+		{
+			Option: "uri=/|white-listed=ERROR",
+			Ok:     false,
+		},
+		{
 			Option: "uri=/admin",
 			Ok:     true,
 			Resource: &Resource{
@@ -111,7 +127,7 @@ func TestIsValid(t *testing.T) {
 	for i, c := range testCases {
 		err := c.Resource.valid()
 		if err != nil && c.Ok {
-			t.Errorf("case %d should not have failed", i)
+			t.Errorf("case %d should not have failed, error: %s", i, err)
 		}
 	}
 }

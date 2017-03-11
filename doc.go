@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	release = "v2.0.3"
+	release = "v3.0.0"
 	gitsha  = "no gitsha provided"
 	version = release + " (git+sha: " + gitsha + ")"
 )
@@ -38,6 +38,7 @@ const (
 
 	headerUpgrade       = "Upgrade"
 	userContextName     = "identity"
+	revokeContextName   = "revoke"
 	authorizationHeader = "Authorization"
 	versionHeader       = "X-Auth-Proxy-Version"
 	envPrefix           = "PROXY_"
@@ -84,22 +85,6 @@ type Resource struct {
 	WhiteListed bool `json:"white-listed" yaml:"white-listed"`
 	// Roles the roles required to access this url
 	Roles []string `json:"roles" yaml:"roles"`
-}
-
-// Cors access controls
-type Cors struct {
-	// Origins is a list of origins permitted
-	Origins []string `json:"origins" yaml:"origins"`
-	// Methods is a set of access control methods
-	Methods []string `json:"methods" yaml:"methods"`
-	// Headers is a set of cors headers
-	Headers []string `json:"headers" yaml:"headers"`
-	// ExposedHeaders are the exposed header fields
-	ExposedHeaders []string `json:"exposed-headers" yaml:"exposed-headers"`
-	// Credentials set the creds flag
-	Credentials bool `json:"credentials" yaml:"credentials"`
-	// MaxAge is the age for CORS
-	MaxAge time.Duration `json:"max-age" yaml:"max-age"`
 }
 
 // Config is the configuration for the proxy

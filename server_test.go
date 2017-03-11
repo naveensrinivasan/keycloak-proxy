@@ -16,13 +16,10 @@ limitations under the License.
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,7 +29,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/coreos/go-oidc/jose"
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,12 +36,11 @@ const (
 	fakeClientID = "test"
 	fakeSecret   = fakeClientID
 
-	fakeAdminRoleURL       = "/admin"
+	fakeAdminRoleURL       = "/admin*"
 	fakeTestRoleURL        = "/test_role"
 	fakeTestAdminRolesURL  = "/test_admin_roles"
-	fakeAuthAllURL         = "/auth_all"
-	fakeTestWhitelistedURL = fakeAuthAllURL + "/white_listed"
-	fakeTestListenOrdered  = fakeAuthAllURL + "/bad_order"
+	fakeAuthAllURL         = "/auth_all/*"
+	fakeTestWhitelistedURL = "/auth_all/white_listed*"
 
 	fakeAdminRole = "role:admin"
 	fakeTestRole  = "role:test"
@@ -222,20 +217,14 @@ func newFakeKeycloakConfig() *Config {
 				Roles:   []string{fakeAdminRole, fakeTestRole},
 			},
 			{
-				URL:         fakeTestWhitelistedURL,
-				WhiteListed: true,
-				Methods:     []string{},
-				Roles:       []string{},
-			},
-			{
 				URL:     fakeAuthAllURL,
-				Methods: []string{"ANY"},
+				Methods: allHTTPMethods,
 				Roles:   []string{},
 			},
 			{
 				URL:         fakeTestWhitelistedURL,
 				WhiteListed: true,
-				Methods:     []string{},
+				Methods:     allHTTPMethods,
 				Roles:       []string{},
 			},
 		},
@@ -261,15 +250,14 @@ func newTestProxyOnlyService() *oauthProxy {
 
 func newTestProxyService(config *Config) (*oauthProxy, *fakeOAuthServer, string) {
 	log.SetOutput(ioutil.Discard)
-	// step: create a fake oauth server
 	auth := newFakeOAuthServer()
-	// step: use the default config if required
 	if config == nil {
 		config = newFakeKeycloakConfig()
 	}
 	// step: set the config
 	config.DiscoveryURL = auth.getLocation()
 	config.RevocationEndpoint = auth.getRevocationURL()
+	config.Verbose = false
 
 	// step: create a proxy
 	proxy, err := newProxy(config)
@@ -311,31 +299,6 @@ func TestNewKeycloakProxy(t *testing.T) {
 	assert.NotNil(t, proxy.endpoint)
 }
 
-func newFakeResponse() *fakeResponse {
-	return &fakeResponse{
-		status:  http.StatusOK,
-		headers: make(http.Header, 0),
-	}
-}
-
-func newFakeGinContext(method, uri string) *gin.Context {
-	return &gin.Context{
-		Request: &http.Request{
-			Method:     method,
-			Host:       "127.0.0.1",
-			RequestURI: uri,
-			URL: &url.URL{
-				Scheme: "http",
-				Host:   "127.0.0.1",
-				Path:   uri,
-			},
-			Header:     make(http.Header, 0),
-			RemoteAddr: "127.0.0.1:8989",
-		},
-		Writer: newFakeResponse(),
-	}
-}
-
 // makeTestOauthLogin performs a fake oauth login into the service, retrieving the access token
 func makeTestOauthLogin(location string) (string, error) {
 	resp, err := makeTestCodeFlowLogin(location)
@@ -357,6 +320,7 @@ func newFakeHTTPRequest(method, path string) *http.Request {
 	return &http.Request{
 		Method: method,
 		Header: make(map[string][]string, 0),
+		Host:   "127.0.0.1",
 		URL: &url.URL{
 			Scheme: "http",
 			Host:   "127.0.0.1",
@@ -373,7 +337,7 @@ func makeTestCodeFlowLogin(location string) (*http.Response, error) {
 	// step: get the redirect
 	var resp *http.Response
 	for count := 0; count < 4; count++ {
-		req, err := http.NewRequest("GET", location, nil)
+		req, err := http.NewRequest(http.MethodGet, location, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -394,21 +358,12 @@ func makeTestCodeFlowLogin(location string) (*http.Response, error) {
 	return resp, nil
 }
 
-func newFakeGinContextWithCookies(method, url string, cookies []*http.Cookie) *gin.Context {
-	cx := newFakeGinContext(method, url)
-	for _, x := range cookies {
-		cx.Request.AddCookie(x)
-	}
-
-	return cx
-}
-
 // testUpstreamResponse is the response from fake upstream
 type testUpstreamResponse struct {
-	URI     string
-	Method  string
-	Address string
-	Headers http.Header
+	URI     string      `json:"uri"`
+	Method  string      `json:"method"`
+	Address string      `json:"address"`
+	Headers http.Header `json:"headers"`
 }
 
 const testProxyAccepted = "Proxy-Accepted"
@@ -422,34 +377,11 @@ func (r testReverseProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		Address: req.RemoteAddr,
 		Headers: req.Header,
 	}
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set(testProxyAccepted, "true")
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	// step: encode the response
 	encoded, _ := json.Marshal(&resp)
 
 	w.Write(encoded)
 }
-
-type fakeResponse struct {
-	size    int
-	status  int
-	headers http.Header
-	body    bytes.Buffer
-	written bool
-}
-
-func (r *fakeResponse) Flush()              {}
-func (r *fakeResponse) Written() bool       { return r.written }
-func (r *fakeResponse) WriteHeaderNow()     {}
-func (r *fakeResponse) Size() int           { return r.size }
-func (r *fakeResponse) Status() int         { return r.status }
-func (r *fakeResponse) Header() http.Header { return r.headers }
-func (r *fakeResponse) WriteHeader(code int) {
-	r.status = code
-	r.written = true
-}
-func (r *fakeResponse) Write(content []byte) (int, error)            { return len(content), nil }
-func (r *fakeResponse) WriteString(s string) (int, error)            { return len(s), nil }
-func (r *fakeResponse) Hijack() (net.Conn, *bufio.ReadWriter, error) { return nil, nil, nil }
-func (r *fakeResponse) CloseNotify() <-chan bool                     { return make(chan bool, 0) }

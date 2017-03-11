@@ -78,7 +78,7 @@ func (r *Resource) valid() error {
 
 	// step: add any of no methods
 	if len(r.Methods) <= 0 {
-		r.Methods = append(r.Methods, "ANY")
+		r.Methods = allHTTPMethods
 	}
 
 	// step: check the method is valid

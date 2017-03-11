@@ -61,12 +61,11 @@ resources:
       - GET
     # a list of roles the user must have in order to accces urls under the above
     roles:
-      - openvpn:vpn-user
-      - openvpn:prod-vpn
+      - openvpn:vpn-test
   - uri: /admin/white_listed
     # permits a url prefix through, bypassing the admission controls
     white-listed: true
-  - uri: /admin
+  - uri: /admin/*
     methods:
       - GET
     roles:

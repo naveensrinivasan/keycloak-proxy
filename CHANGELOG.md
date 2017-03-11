@@ -1,3 +1,13 @@
+#### **3.0.0**
+
+FEATURES
+- changed the routing engine from gin to echo
+- removed the need for ordered resource
+- improved the overall spec of the proxy by removing url inspection and prefix checking
+- removed the cors implementating and using the default echo middles, which is more compliant
+
+BREAKING CHANGES:
+- the proxy no longer uses prefixes for resources, if you wish to use wildcard urls you need to specify it, i.e. --resource=/ becomes --resource=/* or =admin/ becomes =admin/*
 
 #### **2.0.4**
 

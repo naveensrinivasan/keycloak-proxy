@@ -274,7 +274,7 @@ func TestAuthorizationURL(t *testing.T) {
 	}
 	for i, x := range cs {
 		resp, _ := client.Get(u + x.URL)
-		assert.Equal(t, x.ExpectedCode, resp.StatusCode, "case %d, expect: %v, got: %s", i, x.ExpectedCode, resp.StatusCode)
+		assert.Equal(t, x.ExpectedCode, resp.StatusCode, "case %d, expect: %v, got: %d", i, x.ExpectedCode, resp.StatusCode)
 		assert.Equal(t, x.ExpectedURL, resp.Header.Get("Location"), "case %d, expect: %v, got: %s", i, x.ExpectedURL, resp.Header.Get("Location"))
 	}
 }
@@ -309,11 +309,11 @@ func TestCallbackURL(t *testing.T) {
 		if !assert.NoError(t, err, "case %d, should not have failed", i) {
 			continue
 		}
-		openIDURL := resp.Header.Get("Location")
-		if !assert.NotEmpty(t, openIDURL, "case %d, the open id redirection url is empty", i) {
+		openURL := resp.Header.Get("Location")
+		if !assert.NotEmpty(t, openURL, "case %d, the open id redirection url is empty", i) {
 			continue
 		}
-		req, _ = http.NewRequest("GET", openIDURL, nil)
+		req, _ = http.NewRequest("GET", openURL, nil)
 		resp, err = http.DefaultTransport.RoundTrip(req)
 		if !assert.NoError(t, err, "case %d, should not have failed calling the opend id url", i) {
 			continue
@@ -329,7 +329,8 @@ func TestCallbackURL(t *testing.T) {
 			continue
 		}
 		// step: check the callback location is as expected
-		assert.Contains(t, resp.Header.Get("Location"), x.ExpectedURL)
+		assert.Contains(t, resp.Header.Get("Location"), x.ExpectedURL,
+			"case %d, expected location contains: %s, got: %s", i, x.ExpectedURL, resp.Header.Get("Location"))
 	}
 }
 

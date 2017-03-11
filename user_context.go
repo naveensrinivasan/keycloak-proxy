@@ -83,7 +83,7 @@ func extractIdentity(token jose.JWT) (*userContext, error) {
 }
 
 // isAudience checks the audience
-func (r userContext) isAudience(aud string) bool {
+func (r *userContext) isAudience(aud string) bool {
 	if r.audience == aud {
 		return true
 	}
@@ -92,26 +92,26 @@ func (r userContext) isAudience(aud string) bool {
 }
 
 // getRoles returns a list of roles
-func (r userContext) getRoles() string {
+func (r *userContext) getRoles() string {
 	return strings.Join(r.roles, ",")
 }
 
 // isExpired checks if the token has expired
-func (r userContext) isExpired() bool {
+func (r *userContext) isExpired() bool {
 	return r.expiresAt.Before(time.Now())
 }
 
-// isBearerToken checks if the token
-func (r userContext) isBearer() bool {
+// isBearer checks if the token
+func (r *userContext) isBearer() bool {
 	return r.bearerToken
 }
 
 // isCookie checks if it's by a cookie
-func (r userContext) isCookie() bool {
+func (r *userContext) isCookie() bool {
 	return !r.isBearer()
 }
 
 // String returns a string representation of the user context
-func (r userContext) String() string {
+func (r *userContext) String() string {
 	return fmt.Sprintf("user: %s, expires: %s, roles: %s", r.preferredName, r.expiresAt.String(), strings.Join(r.roles, ","))
 }

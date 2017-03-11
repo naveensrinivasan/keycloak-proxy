@@ -23,6 +23,7 @@ import (
 
 	"github.com/coreos/go-oidc/jose"
 	"github.com/go-resty/resty"
+	"github.com/labstack/echo/middleware"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,8 +32,13 @@ func TestRolePermissionsMiddleware(t *testing.T) {
 	cfg.SkipTokenVerification = false
 	cfg.Resources = []*Resource{
 		{
+			URL:     "/*",
+			Methods: allHTTPMethods,
+			Roles:   []string{fakeTestRole},
+		},
+		{
 			URL:     fakeAdminRoleURL,
-			Methods: []string{"ANY"},
+			Methods: allHTTPMethods,
 			Roles:   []string{fakeAdminRole},
 		},
 		{
@@ -48,13 +54,8 @@ func TestRolePermissionsMiddleware(t *testing.T) {
 		{
 			URL:         fakeTestWhitelistedURL,
 			WhiteListed: true,
-			Methods:     []string{},
+			Methods:     []string{"GET"},
 			Roles:       []string{},
-		},
-		{
-			URL:     "/",
-			Methods: []string{"ANY"},
-			Roles:   []string{fakeTestRole},
 		},
 	}
 	px, idp, svc := newTestProxyService(cfg)
@@ -75,7 +76,7 @@ func TestRolePermissionsMiddleware(t *testing.T) {
 			Expects: http.StatusUnauthorized,
 		},
 		{ // check whitelisted is passed
-			URI:     fakeTestWhitelistedURL,
+			URI:     "/auth_all/white_listed/one",
 			Expects: http.StatusOK,
 		},
 		{ // check for redirect
@@ -230,32 +231,45 @@ func TestRolePermissionsMiddleware(t *testing.T) {
 
 func TestCrossSiteHandler(t *testing.T) {
 	cases := []struct {
-		Cors    Cors
+		Method  string
+		Cors    middleware.CORSConfig
 		Headers map[string]string
 	}{
 		{
-			Cors: Cors{
-				Origins: []string{"*"},
+			Method: http.MethodGet,
+			Cors: middleware.CORSConfig{
+				AllowOrigins: []string{"*"},
 			},
 			Headers: map[string]string{
 				"Access-Control-Allow-Origin": "*",
 			},
 		},
 		{
-			Cors: Cors{
-				Origins: []string{"*", "https://examples.com"},
+			Method: http.MethodGet,
+			Cors: middleware.CORSConfig{
+				AllowOrigins: []string{"*", "https://examples.com"},
 			},
 			Headers: map[string]string{
-				"Access-Control-Allow-Origin": "*,https://examples.com",
+				"Access-Control-Allow-Origin": "*",
 			},
 		},
 		{
-			Cors: Cors{
-				Origins: []string{"*", "https://examples.com"},
-				Methods: []string{"GET", "POST"},
+			Method: http.MethodGet,
+			Cors: middleware.CORSConfig{
+				AllowOrigins: []string{"*"},
 			},
 			Headers: map[string]string{
-				"Access-Control-Allow-Origin":  "*,https://examples.com",
+				"Access-Control-Allow-Origin": "*",
+			},
+		},
+		{
+			Method: http.MethodOptions,
+			Cors: middleware.CORSConfig{
+				AllowOrigins: []string{"*"},
+				AllowMethods: []string{"GET", "POST"},
+			},
+			Headers: map[string]string{
+				"Access-Control-Allow-Origin":  "*",
 				"Access-Control-Allow-Methods": "GET,POST",
 			},
 		},
@@ -264,14 +278,13 @@ func TestCrossSiteHandler(t *testing.T) {
 	for i, c := range cases {
 		cfg := newFakeKeycloakConfig()
 		// update the cors options
-		cfg.EnableCorsGlobal = true
 		cfg.NoRedirects = false
-		cfg.CorsCredentials = c.Cors.Credentials
-		cfg.CorsExposedHeaders = c.Cors.ExposedHeaders
-		cfg.CorsHeaders = c.Cors.Headers
-		cfg.CorsMaxAge = c.Cors.MaxAge
-		cfg.CorsMethods = c.Cors.Methods
-		cfg.CorsOrigins = c.Cors.Origins
+		cfg.CorsCredentials = c.Cors.AllowCredentials
+		cfg.CorsExposedHeaders = c.Cors.ExposeHeaders
+		cfg.CorsHeaders = c.Cors.AllowHeaders
+		cfg.CorsMaxAge = time.Duration(time.Duration(c.Cors.MaxAge) * time.Second)
+		cfg.CorsMethods = c.Cors.AllowMethods
+		cfg.CorsOrigins = c.Cors.AllowOrigins
 		// create the test service
 		svc := newTestServiceWithConfig(cfg)
 		// login and get a token
@@ -281,21 +294,16 @@ func TestCrossSiteHandler(t *testing.T) {
 			continue
 		}
 		// make a request and check the response
-		var response testUpstreamResponse
 		resp, err := resty.New().R().
 			SetHeader("Content-Type", "application/json").
 			SetAuthToken(token).
-			SetResult(&response).
-			Get(svc + fakeAuthAllURL)
+			Execute(c.Method, svc+fakeAuthAllURL)
 		if !assert.NoError(t, err, "case %d, unable to make request, error: %s", i, err) {
 			continue
 		}
-		// make sure we got a successfully response
-		if !assert.Equal(t, http.StatusOK, resp.StatusCode(), "case %d expected response: %d, got: %d", i, http.StatusOK, resp.StatusCode()) {
+		if resp.StatusCode() < 200 || resp.StatusCode() > 300 {
 			continue
 		}
-		// parse the response
-		assert.NotEmpty(t, response.Headers, "case %d the headers should not be empty", i)
 		// check the headers are present
 		for k, v := range c.Headers {
 			assert.NotEmpty(t, resp.Header().Get(k), "case %d did not find header: %s", i, k)
@@ -358,14 +366,20 @@ func TestCustomHeadersHandler(t *testing.T) {
 		signed, _ := idp.signToken(token.claims)
 		// make the request
 		var response testUpstreamResponse
-		resp, err := resty.New().SetAuthToken(signed.Encode()).R().SetResult(&response).Get(svc + fakeAuthAllURL)
+		resp, err := resty.New().
+			SetAuthToken(signed.Encode()).R().
+			SetResult(&response).
+			Get(svc + "/auth_all/test")
+
 		if !assert.NoError(t, err, "case %d, unable to make the request, error: %s", i, err) {
 			continue
 		}
+
 		// ensure the headers
 		if !assert.Equal(t, http.StatusOK, resp.StatusCode(), "case %d, expected: %d, got: %d", i, http.StatusOK, resp.StatusCode()) {
 			continue
 		}
+
 		for k, v := range x.Expects {
 			assert.NotEmpty(t, response.Headers.Get(k), "case %d, did not have header: %s", i, k)
 			assert.Equal(t, v, response.Headers.Get(k), "case %d, expected: %s, got: %s", i, v, response.Headers.Get(k))
@@ -379,7 +393,7 @@ func TestAdmissionHandlerRoles(t *testing.T) {
 	cfg.Resources = []*Resource{
 		{
 			URL:     "/admin",
-			Methods: []string{"ANY"},
+			Methods: allHTTPMethods,
 			Roles:   []string{"admin"},
 		},
 		{
@@ -389,12 +403,12 @@ func TestAdmissionHandlerRoles(t *testing.T) {
 		},
 		{
 			URL:     "/either",
-			Methods: []string{"ANY"},
+			Methods: allHTTPMethods,
 			Roles:   []string{"admin", "test"},
 		},
 		{
 			URL:     "/",
-			Methods: []string{"ANY"},
+			Methods: allHTTPMethods,
 		},
 	}
 	_, idp, svc := newTestProxyService(cfg)
@@ -435,7 +449,7 @@ func TestAdmissionHandlerRoles(t *testing.T) {
 		},
 	}
 
-	for _, c := range cs {
+	for i, c := range cs {
 		// step: create token from the toles
 		token := newTestToken(idp.getLocation())
 		if len(c.Roles) > 0 {
@@ -453,9 +467,10 @@ func TestAdmissionHandlerRoles(t *testing.T) {
 		if !assert.NoError(t, err) {
 			continue
 		}
-		assert.Equal(t, c.Expected, resp.StatusCode())
+		assert.Equal(t, c.Expected, resp.StatusCode(), "case %d, expected: %d, got: %d",
+			i, c.Expected, resp.StatusCode())
 		if c.Expected == http.StatusOK {
-			assert.NotEmpty(t, resp.Header().Get(testProxyAccepted))
+			assert.NotEmpty(t, resp.Header().Get(testProxyAccepted), "case %d, not proxy header found", i)
 		}
 	}
 }
@@ -466,7 +481,7 @@ func TestRolesAdmissionHandlerClaims(t *testing.T) {
 	cfg.Resources = []*Resource{
 		{
 			URL:     "/admin",
-			Methods: []string{"ANY"},
+			Methods: allHTTPMethods,
 		},
 	}
 	cs := []struct {
